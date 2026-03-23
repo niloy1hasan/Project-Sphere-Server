@@ -1,4 +1,4 @@
-const {createUser, getUsers} = require('../models/users.model');
+const {createUser, getUsers, checkUserExists} = require('../models/users.model');
 
 exports.createUser = async (req, res) => {
   try {
@@ -49,4 +49,19 @@ exports.getUsers = async(req, res) => {
         message: 'Internal server error',
         });
     }
+}
+
+exports.checkUserExists = async(req, res) => {
+  const email = req.params.email;
+  try{
+    const isExist = await checkUserExists(email);
+    res.json({
+      isExist: isExist
+    });
+  } catch (error){
+    console.error(error);
+        res.status(500).json({
+        message: 'Internal server error',
+        });
+  }
 }
