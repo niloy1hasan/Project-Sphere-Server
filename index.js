@@ -2,8 +2,10 @@ const app = require("./src/app");
 const PORT = process.env.PORT || 3000;
 
 const userRouter = require('./src/routes/users.route');
+const profileRouter = require('./src/routes/userProfile.route');
 
 app.use(userRouter);
+app.use(profileRouter);
 
 app.get('/', (req, res) => {
   res.send('Welcome to ProjectSphere server');

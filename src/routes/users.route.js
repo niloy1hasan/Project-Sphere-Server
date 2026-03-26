@@ -5,6 +5,6 @@ const router = express.Router();
 router.get('/users', getUsers);
 router.post('/users', createUser);
 
-router.get('/users/exist/:email', checkUserExists);
+router.get('/users/exist', checkUserExists);
 
 module.exports = router;

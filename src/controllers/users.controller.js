@@ -52,12 +52,21 @@ exports.getUsers = async(req, res) => {
 }
 
 exports.checkUserExists = async(req, res) => {
-  const email = req.params.email;
+  const { email, username } = req.query;
   try{
-    const isExist = await checkUserExists(email);
+    if(email){
+      const isExist = await checkUserExists(email);
     res.json({
       isExist: isExist
     });
+    } else if(username){
+      const isExist = await checkUserExists(username);
+    res.json({
+      isExist: isExist
+    });
+    } else {
+      return res.status(400).json({ message: 'Email or username required' });
+    }
   } catch (error){
     console.error(error);
         res.status(500).json({
