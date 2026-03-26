@@ -1,4 +1,4 @@
-const pool = require('../../config/db');
+const pool = require("../../config/db");
 
 exports.getUserProfileByEmail = async (email) => {
   const query = `
@@ -97,4 +97,18 @@ exports.getUserProfileByUsername = async (username) => {
 
   const result = await pool.query(query, [username]);
   return result.rows[0];
+};
+
+exports.checkUsernameAvailable = async (username) => {
+  const query = `
+  SELECT EXISTS (
+    SELECT 1 
+    FROM user_profiles 
+    WHERE username = $1
+  ) AS is_taken;
+  `;
+
+  const result = await pool.query(query, [username]);
+
+  return !result.rows[0].is_taken;
 };

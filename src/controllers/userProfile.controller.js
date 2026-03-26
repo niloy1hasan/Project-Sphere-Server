@@ -1,4 +1,4 @@
-const { getUserProfileByEmail, getUserProfileByUsername } = require('../models/userProfile.model');
+const { getUserProfileByEmail, getUserProfileByUsername, checkUsernameAvailable } = require('../models/userProfile.model');
 
 exports.getUserProfileByQuery = async (req, res) => {
   try {
@@ -23,6 +23,30 @@ exports.getUserProfileByQuery = async (req, res) => {
     }
 
     res.json(profile);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'Internal server error'
+    });
+  }
+};
+
+exports.checkUsernameAvailable = async (req, res) => {
+  const { username } = req.query;
+
+  try {
+    if (!username) {
+      return res.status(400).json({
+        message: 'Username is required'
+      });
+    }
+
+    const isAvailable = await checkUsernameAvailable(username);
+
+    res.json({
+      isAvailable
+    });
 
   } catch (error) {
     console.error(error);
