@@ -99,6 +99,110 @@ exports.getUserProfileByUsername = async (username) => {
   return result.rows[0];
 };
 
+exports.setupProfile = async (data, email) => {
+  const query = `
+    WITH user_row AS (
+      SELECT id FROM users WHERE email = $1
+    ),
+    update_user AS (
+      UPDATE users
+      SET photo_url = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE email = $1
+      RETURNING id
+    )
+    INSERT INTO user_profiles (user_id, username, top_skill)
+    SELECT id, $3, $4 FROM user_row
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      username = EXCLUDED.username,
+      top_skill = EXCLUDED.top_skill
+    RETURNING id, username, top_skill;
+  `;
+
+  try {
+    const result = await pool.query(query, [
+      email,        
+      data.photo_url,
+      data.username,
+      data.top_skill
+    ]);
+
+    if (result.rows.length === 0) {
+      throw new Error("User not found or insert failed");
+    }
+
+    return result.rows[0];
+
+  } catch (err) {
+    throw err;
+  }
+};
+
+exports.setUserProfileByQuery = async () => {
+
+};
+
+exports.completeOnboarding = async (email) => {
+  const query = `
+    UPDATE users
+    SET onboarding_completed = TRUE
+    WHERE email = $1
+    RETURNING id, email, onboarding_completed
+  `;
+
+  const result = await pool.query(query, [email]);
+
+  if (result.rows.length === 0) {
+    throw new Error('User not found');
+  }
+
+  return result.rows[0];
+};
+
+exports.checkOnboarding = async (email) => {
+
+  const getUserQuery = `
+    SELECT id, onboarding_completed, photo_url
+    FROM users
+    WHERE email = $1
+  `;
+
+  const getProfileQuery = `
+    SELECT username, top_skill
+    FROM user_profiles
+    WHERE user_id = $1
+  `;
+
+  const updateOnboardingQuery = `
+    UPDATE users
+    SET onboarding_completed = TRUE
+    WHERE id = $1
+  `;
+
+  const userRes = await pool.query(getUserQuery, [email]);
+  console.log(userRes)
+  if (userRes.rows.length === 0) {
+    throw new Error('User not found');
+  }
+
+  const { id: user_id, onboarding_completed, photo_url } = userRes.rows[0];
+
+  if (onboarding_completed) {
+    return false;
+  }
+
+  const profileRes = await pool.query(getProfileQuery, [user_id]);
+  const profile = profileRes.rows[0];
+
+  if (profile && profile.username && profile.top_skill && photo_url) {
+    await pool.query(updateOnboardingQuery, [user_id]);
+    return false;
+  }
+
+  return true;
+};
+
 exports.checkUsernameAvailable = async (username) => {
   const query = `
   SELECT EXISTS (
@@ -112,3 +216,32 @@ exports.checkUsernameAvailable = async (username) => {
 
   return !result.rows[0].is_taken;
 };
+
+exports.updateMobileNumberByUsername = async (username, mobile_number) => {
+  const query = `
+    UPDATE user_profiles
+    SET mobile_number = $1
+    WHERE username = $2
+    RETURNING *;
+  `;
+
+  const values = [mobile_number, username];
+
+  const result = await pool.query(query, values);
+  return result.rows[0];
+};
+
+exports.updateBioByUsername = async (username, bio) => {
+  const query = `
+    UPDATE user_profiles
+    SET bio = $1
+    WHERE username = $2
+    RETURNING *;
+  `;
+
+  const values = [bio, username];
+
+  const result = await pool.query(query, values);
+  return result.rows[0];
+};
+
