@@ -1,28 +1,109 @@
 const pool = require("../../config/db");
+const { formatTime } = require("../utils/formatTime");
+const { getRandomColor } = require("../utils/GetRandomColor");
 const { roleMap } = require("../utils/RoleMap");
 
-exports.getProjectsByUserId = async (userId) => {
-  const query = `
-    SELECT 
-      id,
-      name,
-      slug,
-      description,
-      logo_url,
-      privacy,
-      status,
-      sdlc_model,
-      creator_id,
-      owner_id,
-      created_at,
-      updated_at
-    FROM projects
-    WHERE owner_id = $1 OR creator_id = $1
-    ORDER BY created_at DESC;
-  `;
+const formatStatus = (status) => {
+  const map = {
+    active: "In Progress",
+    completed: "Completed",
+    archived: "Archived",
+    on_hold: "On Hold",
+  };
+  return map[status] || "In Progress";
+};
 
-  const result = await pool.query(query, [userId]);
-  return result.rows;
+exports.getProjectsByUserId = async (userId) => {
+  const uid = Number(userId);
+
+  const projectsRes = await pool.query(
+    `
+    SELECT DISTINCT p.*
+    FROM projects p
+    LEFT JOIN project_members pm 
+      ON pm.project_id = p.id
+    WHERE 
+      p.owner_id = $1
+      OR p.creator_id = $1
+      OR pm.user_id = $1
+    ORDER BY p.created_at DESC;
+    `,
+    [uid]
+  );
+
+  const projects = projectsRes.rows;
+  const finalData = [];
+
+  for (const project of projects) {
+    const projectId = project.id;
+
+    const tagsRes = await pool.query(
+      `SELECT tag FROM project_tags WHERE project_id = $1`,
+      [projectId]
+    );
+
+    const tags = tagsRes.rows.map(t => t.tag);
+
+    const membersRes = await pool.query(
+      `
+      SELECT u.id, u.first_name, u.last_name
+      FROM project_members pm
+      JOIN users u ON u.id = pm.user_id
+      WHERE pm.project_id = $1
+      `,
+      [projectId]
+    );
+
+    const teamMembers = membersRes.rows.map(m => ({
+      id: m.id,
+      name: `${m.first_name} ${m.last_name}`,
+      avatar: m.first_name?.charAt(0) || "U",
+      color: getRandomColor(),
+    }));
+
+    const isMember = teamMembers.some(m => m.id === uid);
+    const isOwner = Number(project.owner_id) === uid;
+    const isCreator = Number(project.creator_id) === uid;
+
+    let category = "collaborate";
+
+    if (isOwner || isCreator) {
+      category = "personal";
+    }
+
+    finalData.push({
+      id: project.id,
+      label: `Project ${project.id}`,
+      name: project.name,
+      slug: project.slug,
+      privacy: project.privacy,
+      description: project.description,
+      creator_id: project.creator_id,
+      owner_id: project.owner_id,
+      sdlc_model: project.sdlc_model,
+
+      tags,
+      category,
+
+      progress: Math.floor(Math.random() * 100),
+      status: formatStatus(project.status),
+      priority: "Medium",
+
+      lastEdited: "2 hours ago",
+      dueDate: "Apr 15, 2026",
+
+      teamMembers,
+
+      totalTasks: 20,
+      completedTasks: 10,
+
+      isFavorite: false,
+      logo: project.logo_url || null,
+      bgGradient: "from-blue-500 to-cyan-400",
+    });
+  }
+
+  return finalData;
 };
 
 exports.createProject = async (projectData) => {
@@ -144,6 +225,158 @@ exports.getProjectBySlug = async (slug) => {
   return result.rows[0];
 };
 
+exports.getProjectInvitationsByUserId = async (userId) => {
+  const query = `
+    SELECT 
+      pi.id AS invitation_id,
+      pi.project_id,
+      pi.role,
+      pi.status,
+      pi.created_at,
+
+      p.name AS project_name,
+      p.slug,
+      p.description,
+      p.logo_url,
+
+      u.first_name,
+      u.last_name,
+      u.id AS inviter_id
+    FROM project_invitations pi
+    JOIN projects p ON p.id = pi.project_id
+    JOIN users u ON u.id = pi.invited_by
+    WHERE pi.invitee_id = $1
+    AND pi.status = 'pending'
+    ORDER BY pi.created_at DESC;
+  `;
+
+  const result = await pool.query(query, [userId]);
+
+  return result.rows.map((row) => ({
+    id: row.invitation_id,
+    project_id: row.project_id,
+    slug: row.slug,
+
+    name: row.project_name,
+    description: row.description,
+
+    logo:
+      row.logo_url || '',
+    by: `${row.first_name} ${row.last_name}`,
+    byAvatar: ``,
+    time: formatTime(row.created_at),
+  }));
+};
+
+
+exports.acceptInvitationService = async (invitationId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // 1. Get invitation
+    const inviteRes = await client.query(
+      `SELECT * FROM project_invitations WHERE id = $1`,
+      [invitationId]
+    );
+
+    if (inviteRes.rows.length === 0) {
+      throw new Error("Invitation not found");
+    }
+
+    const invitation = inviteRes.rows[0];
+
+    if (invitation.status === "accepted") {
+      throw new Error("Already accepted");
+    }
+
+    if (invitation.status === "declined") {
+      throw new Error("Already declined");
+    }
+
+    const { project_id, invitee_id, role, invited_by } = invitation;
+
+    // 2. Add to project_members (avoid duplicate)
+    const existingMember = await client.query(
+      `SELECT id FROM project_members 
+       WHERE project_id = $1 AND user_id = $2`,
+      [project_id, invitee_id]
+    );
+
+    if (existingMember.rows.length === 0) {
+      await client.query(
+        `INSERT INTO project_members
+        (project_id, user_id, role, status, invited_by, joined_at, updated_at)
+        VALUES ($1,$2,$3,'active',$4,NOW(),NOW())`,
+        [project_id, invitee_id, role, invited_by]
+      );
+    }
+
+    // 3. Update invitation status
+    const updateRes = await client.query(
+      `UPDATE project_invitations
+       SET status = 'accepted', updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [invitationId]
+    );
+
+    await client.query("COMMIT");
+
+    return updateRes.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+
+exports.declineInvitationService = async (invitationId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const inviteRes = await client.query(
+      `SELECT * FROM project_invitations WHERE id = $1`,
+      [invitationId]
+    );
+
+    if (inviteRes.rows.length === 0) {
+      throw new Error("Invitation not found");
+    }
+
+    const invitation = inviteRes.rows[0];
+
+    if (invitation.status === "accepted") {
+      throw new Error("Already accepted, cannot decline");
+    }
+
+    if (invitation.status === "declined") {
+      throw new Error("Already declined");
+    }
+
+    const updateRes = await client.query(
+      `UPDATE project_invitations
+       SET status = 'declined', updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [invitationId]
+    );
+
+    await client.query("COMMIT");
+
+    return updateRes.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
 
 // /**
 //  * Insert multiple tags for a project (bulk insert).

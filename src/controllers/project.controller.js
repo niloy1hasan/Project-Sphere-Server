@@ -1,4 +1,4 @@
-const { getProjects, createProject, getProjectsByUserId, getProjectBySlug, getProjectById, updateProjectById, deleteProjectById } = require("../models/project.model");
+const { getProjects, createProject, getProjectsByUserId, getProjectBySlug, getProjectById, updateProjectById, deleteProjectById, getProjectInvitationsByUserId, declineInvitationService, acceptInvitationService } = require("../models/project.model");
 const { slugify } = require("../utils/slugify");
 
 // GET /projects
@@ -258,6 +258,94 @@ exports.deleteProjectController = async (req, res) => {
     });
   }
 };
+
+
+exports.getProjectInvitations = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required",
+      });
+    }
+
+    const invitations = await getProjectInvitationsByUserId(userId);
+
+    return res.status(200).json({
+      success: true,
+      data: invitations,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+
+// ACCEPT
+exports.acceptProjectInvitation = async (req, res) => {
+  try {
+    const { invitationId } = req.params;
+
+    if (!invitationId) {
+      return res.status(400).json({
+        success: false,
+        message: "invitationId is required",
+      });
+    }
+
+    const result = await acceptInvitationService(invitationId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Invitation accepted",
+      data: result,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error",
+    });
+  }
+};
+
+// DECLINE
+exports.declineProjectInvitation = async (req, res) => {
+  try {
+    const { invitationId } = req.params;
+
+    if (!invitationId) {
+      return res.status(400).json({
+        success: false,
+        message: "invitationId is required",
+      });
+    }
+
+    const result = await declineInvitationService(invitationId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Invitation declined",
+      data: result,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error",
+    });
+  }
+};
+
 
 // // POST /projects/:id/members
 // exports.addMember = async (req, res) => {
